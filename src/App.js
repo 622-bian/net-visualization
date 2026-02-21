@@ -17,7 +17,8 @@ import L from 'leaflet';
 import NodeList from './NodeList';
 
 import { topology } from './services/topologyModel';
-import { buildInitialNodeState, createMockNodeStream } from './services/mockNodeStream';
+import { buildInitialNodeState } from './services/mockNodeStream';
+import { useWebSocketTopology } from './hooks/useWebSocketTopology';
 
 // 导入矢量图标资源
 import groundStationIconUrl from './assets/icons/ground-station.svg';
@@ -138,12 +139,80 @@ function getLinkFlowSpeedClass(link) {
   return 'link-flow--medium';
 }
 
+// 节点 Popup 内容组件，支持刷新按钮
+function NodePopupContent({ node, typeMeta, nodeStateRef }) {
+  const [refreshCount, setRefreshCount] = useState(0);
+
+  const handleRefresh = () => {
+    setRefreshCount((prev) => prev + 1);
+  };
+
+  const getDynState = () => nodeStateRef.current[node.id];
+
+  return (
+    <div className="text-sm text-slate-900">
+      <div className="flex items-center justify-between">
+        <div className="text-base font-semibold text-slate-900">{node.name}</div>
+        <button
+          onClick={handleRefresh}
+          className="ml-2 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+          title="刷新数据"
+        >
+          🔄
+        </button>
+      </div>
+      <div className="mt-2 space-y-1 text-slate-800">
+        <div>节点 ID：{node.id}</div>
+        <div>节点类型：{typeMeta.label}</div>
+        <div>层级：{node.layer || '-'}</div>
+        <div>
+          状态：
+          {(() => {
+            const dynState = getDynState();
+            const online = dynState?.state?.online ?? node.state?.online;
+            const status = dynState?.state?.status ?? node.state?.status ?? '-';
+            return `${online ? '在线' : '离线'} (${status})`;
+          })()}
+        </div>
+        <div>
+          时间戳：
+          {(() => {
+            const dynState = getDynState();
+            const ts = dynState?.timestamp || node.state?.lastSeen || '-';
+            // 刷新计数变化时会重新渲染，从而获取最新时间戳
+            return `${ts}${refreshCount > 0 ? '' : ''}`;
+          })()}
+        </div>
+        <div>
+          位置：
+          {(() => {
+            const dynState = getDynState();
+            const geo = dynState?.location?.geo || node.location?.geo;
+            if (!geo) return '-';
+            return `${geo.lat?.toFixed(5) ?? '-'}, ${geo.lng?.toFixed(5) ?? '-'}`;
+          })()}
+        </div>
+        <div>
+          高度：
+          {(() => {
+            const dynState = getDynState();
+            const geo = dynState?.location?.geo || node.location?.geo;
+            return geo?.altitude ?? '-';
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const baseNodes = useMemo(() => topology.nodes, []);
   const links = topology.links;
 
   // 使用 useRef 保存 Marker 实例字典，避免关联任何 React 状态
   const markerRefsById = useRef({});
+  // 使用 useRef 保存链路 Polyline 实例字典，用于实时位置更新
+  const linkPolylineRefsById = useRef({});
   // 使用 useRef 保存动态节点状态，仅供查询，不触发重渲染
   const nodeStateRef = useRef(buildInitialNodeState(baseNodes));
 
@@ -192,12 +261,59 @@ function App() {
         }
       }
     });
+
+    // 更新链路位置 - 遍历所有相关链路并更新其 Polyline 位置
+    const getDynamicNodePosition = (nodeId) => {
+      const dynState = currentState[nodeId];
+      if (dynState?.location?.geo) {
+        return [dynState.location.geo.lat, dynState.location.geo.lng];
+      }
+      const baseNode = nodeMapRef.current[nodeId];
+      return getNodePosition(baseNode);
+    };
+
+    topology.links.forEach((link) => {
+      const polylineRefs = linkPolylineRefsById.current[link.id];
+      if (!polylineRefs) return;
+
+      const fromPosition = getDynamicNodePosition(link.from);
+      const toPosition = getDynamicNodePosition(link.to);
+      if (!fromPosition || !toPosition) return;
+
+      // 更新这条链路的所有 Polyline（健康线和流量线）
+      polylineRefs.forEach((polyline) => {
+        if (polyline && polyline.setLatLngs) {
+          polyline.setLatLngs([fromPosition, toPosition]);
+        }
+      });
+    });
   }, [baseNodes]);
 
-  useEffect(() => {
-    const stop = createMockNodeStream(baseNodes, handleUpdateNodeStates);
-    return () => stop();
-  }, [baseNodes, handleUpdateNodeStates]);
+  const handleWebSocketData = useCallback((data) => {
+    if (!data || !Array.isArray(data.nodes)) {
+      return;
+    }
+
+    const updates = data.nodes.map((node) => ({
+      id: node.id,
+      location: {
+        geo: {
+          lat: node.lat,
+          lng: node.lng,
+          altitude: node.altitude,
+        },
+      },
+      state: {
+        online: node.status !== 'offline',
+        status: node.status,
+      },
+      timestamp: new Date(data.timestamp).toISOString(),
+    }));
+
+    handleUpdateNodeStates(updates);
+  }, [handleUpdateNodeStates]);
+
+  useWebSocketTopology(handleWebSocketData, 'ws://localhost:8080');
 
   const handleToggleSidebar = useCallback((value) => {
     const nextCollapsed = !!value;
@@ -297,8 +413,17 @@ function App() {
         return;
       }
 
-      const baseNode = nodeMapRef.current[nodeId];
-      const nodePosition = getNodePosition(baseNode);
+      // 使用动态位置而不是静态位置，确保卫星等移动节点聚焦到实时位置
+      const dynState = nodeStateRef.current[nodeId];
+      let nodePosition = null;
+      
+      if (dynState?.location?.geo) {
+        nodePosition = [dynState.location.geo.lat, dynState.location.geo.lng];
+      } else {
+        const baseNode = nodeMapRef.current[nodeId];
+        nodePosition = getNodePosition(baseNode);
+      }
+
       if (!nodePosition) {
         onFocusHandled && onFocusHandled();
         return;
@@ -318,7 +443,8 @@ function App() {
   }
 
   // 渲染 Marker 的基础数据来自 baseNodes，位置和状态在 Marker 挂载后直接由 Leaflet 更新
-  const markerElements = baseNodes.map((node) => {
+  // 使用 useMemo 缓存 markerElements，避免每次 render 时 Marker 被重新挂载导致闪烁
+  const markerElements = useMemo(() => baseNodes.map((node) => {
     const typeMeta = NODE_TYPE_META[node.type] || { label: node.type || '未知节点', color: '#7f7f7f' };
     const position = getNodePosition(node);
     if (!position) {
@@ -342,58 +468,32 @@ function App() {
         }}
       >
         <Popup>
-          <div className="text-sm text-slate-900">
-            <div className="text-base font-semibold text-slate-900">{node.name}</div>
-            <div className="mt-2 space-y-1 text-slate-800">
-              <div>节点 ID：{node.id}</div>
-              <div>节点类型：{typeMeta.label}</div>
-              <div>层级：{node.layer || '-'}</div>
-              <div>
-                状态：
-                {(() => {
-                  const dynState = nodeStateRef.current[node.id];
-                  const online = dynState?.state?.online ?? node.state?.online;
-                  const status = dynState?.state?.status ?? node.state?.status ?? '-';
-                  return `${online ? '在线' : '离线'} (${status})`;
-                })()}
-              </div>
-              <div>
-                时间戳：
-                {(() => {
-                  const dynState = nodeStateRef.current[node.id];
-                  return dynState?.timestamp || node.state?.lastSeen || '-';
-                })()}
-              </div>
-              <div>
-                位置：
-                {(() => {
-                  const dynState = nodeStateRef.current[node.id];
-                  const geo = dynState?.location?.geo || node.location?.geo;
-                  if (!geo) return '-';
-                  return `${geo.lat?.toFixed(5) ?? '-'}, ${geo.lng?.toFixed(5) ?? '-'}`;
-                })()}
-              </div>
-              <div>
-                高度：
-                {(() => {
-                  const dynState = nodeStateRef.current[node.id];
-                  const geo = dynState?.location?.geo || node.location?.geo;
-                  return geo?.altitude ?? '-';
-                })()}
-              </div>
-            </div>
-          </div>
+          <NodePopupContent
+            node={node}
+            typeMeta={typeMeta}
+            nodeStateRef={nodeStateRef}
+          />
         </Popup>
       </Marker>
     );
-  });
+  }), [baseNodes]);
 
-  // 链路渲染保持原逻辑，但仅基于 baseNodes 计算位置
+  // 获取节点的动态位置（优先使用 WebSocket 更新的位置，回退到基础位置）
+  const getDynamicNodePosition = (nodeId) => {
+    const dynState = nodeStateRef.current[nodeId];
+    if (dynState?.location?.geo) {
+      return [dynState.location.geo.lat, dynState.location.geo.lng];
+    }
+    const baseNode = nodeMapRef.current[nodeId];
+    return getNodePosition(baseNode);
+  };
+
+  // 链路渲染使用动态位置，确保连线跟随节点实时更新
+  // 为了让 Polyline 能被 ref 捕获，我们需要使用一个闭包技巧将 ref 回调传递给 Polyline 的 eventHandlers
+  // 不使用 useMemo 因为 linkElements 中的位置需要实时更新（每次 WebSocket 数据到达时）
   const linkElements = links.map((link) => {
-    const fromNode = nodeMapRef.current[link.from];
-    const toNode = nodeMapRef.current[link.to];
-    const fromPosition = getNodePosition(fromNode);
-    const toPosition = getNodePosition(toNode);
+    const fromPosition = getDynamicNodePosition(link.from);
+    const toPosition = getDynamicNodePosition(link.to);
     if (!fromPosition || !toPosition) {
       return null;
     }
@@ -404,9 +504,30 @@ function App() {
       ? Math.min(1, Math.max(0.4, link.availability))
       : 0.8;
 
+    // 健康线 ref 回调
+    const healthLineRefCallback = (polyline) => {
+      if (polyline && !linkPolylineRefsById.current[link.id]) {
+        linkPolylineRefsById.current[link.id] = [];
+      }
+      if (polyline && linkPolylineRefsById.current[link.id]) {
+        linkPolylineRefsById.current[link.id][0] = polyline;
+      }
+    };
+
+    // 流量线 ref 回调
+    const flowLineRefCallback = (polyline) => {
+      if (polyline && !linkPolylineRefsById.current[link.id]) {
+        linkPolylineRefsById.current[link.id] = [];
+      }
+      if (polyline && linkPolylineRefsById.current[link.id]) {
+        linkPolylineRefsById.current[link.id][1] = polyline;
+      }
+    };
+
     return (
       <React.Fragment key={link.id}>
         <Polyline
+          ref={healthLineRefCallback}
           positions={[fromPosition, toPosition]}
           pathOptions={{
             ...getLinkStyle(link),
@@ -416,6 +537,7 @@ function App() {
           }}
         />
         <Polyline
+          ref={flowLineRefCallback}
           positions={[fromPosition, toPosition]}
           pathOptions={{
             color: healthColor,

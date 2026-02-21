@@ -1,0 +1,17 @@
+{
+  "name": "net-visualization-mock-server",
+  "version": "1.0.0",
+  "description": "Mock WebSocket server for network topology real-time updates",
+  "type": "module",
+  "main": "mockWebSocketServer.js",
+  "scripts": {
+    "start": "node mockWebSocketServer.js",
+    "dev": "node mockWebSocketServer.js"
+  },
+  "keywords": ["websocket", "network", "topology", "mock"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2"
+  }
+}
