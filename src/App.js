@@ -143,10 +143,11 @@ function App() {
   }
 
   return (
-    // 外层容器采用深色渐变背景与整体仪表盘布局
-    <div className="App bg-gradient-to-br from-deep-navy via-[#0d1f3c] to-[#030915] text-slate-100">
+    // 外层容器采用全屏布局，地图占满整个页面
+    <div className="App relative h-screen w-screen bg-gradient-to-br from-deep-navy via-[#0d1f3c] to-[#030915] text-slate-100 overflow-hidden">
+      {/* 节点列表浮层 - 半透明侧边栏 */}
       <div
-        className={`flex flex-col transition-all duration-300 ease-out border-r border-white/10 backdrop-blur-lg bg-white/10 shadow-soft-glow flex-shrink-0 ${sidebarCollapsed ? 'w-20' : 'w-80'}`}
+        className={`absolute top-0 left-0 z-10 h-full transition-all duration-300 ease-out border-r border-white/20 backdrop-blur-2xl bg-white/5 shadow-2xl flex-shrink-0 ${sidebarCollapsed ? 'w-20' : 'w-80'}`}
       >
         <NodeList
           nodes={nodes}
@@ -158,24 +159,12 @@ function App() {
         />
       </div>
 
-      <div className="flex flex-1 flex-col gap-6 p-6">
-        <header className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/10 px-6 py-4 backdrop-blur-xl shadow-soft-glow">
-          <div>
-            <p className="text-xs uppercase tracking-[0.4em] text-aurora-green/80">Aerial-Ground Network</p>
-            <h2 className="mt-2 text-2xl font-semibold text-aurora-green">网络态势可视化系统（原型）</h2>
-          </div>
-        </header>
-
-        {/* MapContainer：react-leaflet 提供的地图容器组件
-            - center：地图中心点，数组 [纬度, 经度]
-            - zoom：初始缩放级别
-            - className：用于绑定 CSS 样式（例如设置高度、宽度）
-        */}
-        <MapContainer
-          center={[39.9, 116.4]}
-          zoom={13}
-          className="h-[calc(100vh-220px)] min-h-[420px] w-full overflow-hidden rounded-3xl border border-white/10 bg-white/5 backdrop-blur-md shadow-soft-glow"
-        >
+      {/* 全屏地图容器 */}
+      <MapContainer
+        center={[39.9, 116.4]}
+        zoom={13}
+        className="absolute inset-0 h-full w-full z-0"
+      >
           <SelectedNodeController node={selectedNode} />
           {/* TileLayer：地图瓦片图层（底图），这里使用 OpenStreetMap 的公共瓦片服务 */}
           <TileLayer
@@ -225,7 +214,6 @@ function App() {
             />
           ))}
         </MapContainer>
-      </div>
     </div>
   );
 }

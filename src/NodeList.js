@@ -215,20 +215,33 @@ function NodeList(props) {
       >
         {!collapsed ? (
           <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-aurora-green/70">Node Cluster</p>
-            <h3 className="mt-3 text-lg font-semibold text-slate-50">
-              节点列表 <span className="ml-2 text-sm font-normal text-aurora-green/80">({nodes.length})</span>
+            <p className="text-xs uppercase tracking-[0.35em]" style={{ color: '#576690b3' }}>Node Cluster</p>
+            <h3 className="mt-3 text-lg font-semibold text-slate-900">
+              节点列表 <span className="ml-2 text-sm font-normal text-emerald-700">({nodes.length})</span>
             </h3>
           </div>
         ) : (
-          <ListTree className="h-6 w-6 text-aurora-green" />
+          <ListTree className="h-6 w-6" style={{ color: '#576690' }} />
         )}
         <div className={`flex ${collapsed ? 'flex-col gap-3' : 'items-center gap-3'}`}>
           <button
             onClick={cycleGroupMode}
-            className={`flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 text-xs uppercase tracking-[0.25em] text-aurora-green transition hover:border-aurora-green/60 hover:bg-aurora-green/10 ${
+            className={`flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 text-xs uppercase tracking-[0.25em] transition ${
               collapsed ? 'h-10 w-10 p-0' : 'px-3 py-1.5'
             }`}
+            style={{ 
+              color: '#576690',
+              borderColor: collapsed ? undefined : '#57669060',
+              backgroundColor: collapsed ? undefined : '#57669010'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.borderColor = '#57669099';
+              e.target.style.backgroundColor = '#57669020';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.borderColor = collapsed ? 'rgba(255,255,255,0.2)' : '#57669060';
+              e.target.style.backgroundColor = collapsed ? 'rgba(255,255,255,0.1)' : '#57669010';
+            }}
             aria-label={`切换分组模式，当前：${currentGroupOption.label}`}
           >
             <GroupModeIcon className="h-4 w-4" />
@@ -236,7 +249,20 @@ function NodeList(props) {
           </button>
           <button
             onClick={toggle}
-            className="group flex items-center justify-center rounded-full border border-aurora-green/40 bg-aurora-green/10 p-2 text-aurora-green transition hover:border-aurora-green hover:bg-aurora-green/20"
+            className="group flex items-center justify-center rounded-full border p-2 transition"
+            style={{
+              borderColor: '#57669066',
+              backgroundColor: '#57669019',
+              color: '#576690'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.borderColor = '#576690';
+              e.target.style.backgroundColor = '#57669033';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.borderColor = '#57669066';
+              e.target.style.backgroundColor = '#57669019';
+            }}
             aria-label={collapsed ? '展开节点列表' : '收起节点列表'}
           >
             {collapsed ? (
@@ -257,7 +283,26 @@ function NodeList(props) {
                 <button
                   type="button"
                   onClick={() => toggleGroupSection(group.key)}
-                  className="group flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-left backdrop-blur-md transition hover:border-aurora-green/60 hover:bg-aurora-green/10 focus:outline-none focus:ring-2 focus:ring-aurora-green/70"
+                  className="group flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-left backdrop-blur-md transition focus:outline-none focus:ring-2"
+                  style={{
+                    '--hover-border': '#57669099',
+                    '--hover-bg': '#57669019',
+                    '--focus-ring': '#576690b3'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.borderColor = '#57669099';
+                    e.target.style.backgroundColor = '#57669019';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.borderColor = 'rgba(255,255,255,0.1)';
+                    e.target.style.backgroundColor = 'rgba(255,255,255,0.05)';
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.boxShadow = `0 0 0 2px #576690b3`;
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.boxShadow = 'none';
+                  }}
                   aria-expanded={!isGroupCollapsed}
                 >
                   <span className="flex items-center gap-3">
@@ -265,17 +310,18 @@ function NodeList(props) {
                       className="h-1.5 w-1.5 rounded-full"
                       style={{ backgroundColor: group.color || '#7f7f7f' }}
                     />
-                    <span className="flex items-center gap-2 text-sm font-semibold tracking-[0.25em] text-aurora-green/80">
+                    <span className="flex items-center gap-2 text-sm font-semibold tracking-[0.25em] text-emerald-700">
                       {group.label}
-                      <span className="text-[10px] font-normal tracking-normal text-slate-200/70">
+                      <span className="text-[10px] font-normal tracking-normal text-slate-600">
                         ({group.nodes.length})
                       </span>
                     </span>
                   </span>
                   <ChevronDown
-                    className={`h-4 w-4 text-aurora-green transition-transform duration-200 ${
+                    className={`h-4 w-4 transition-transform duration-200 ${
                       isGroupCollapsed ? '-rotate-90' : 'rotate-0'
                     }`}
+                    style={{ color: '#576690' }}
                   />
                 </button>
                 <CollapsibleSection isOpen={!isGroupCollapsed}>
@@ -298,15 +344,38 @@ function NodeList(props) {
                           role="button"
                           tabIndex={0}
                           aria-pressed={isSelected}
-                          className={`group relative flex items-center gap-4 rounded-2xl border px-4 py-4 shadow-soft-glow backdrop-blur-lg transition duration-200 focus:outline-none focus:ring-2 focus:ring-aurora-green/70 ${
+                          className={`group relative flex items-center gap-4 rounded-2xl border px-4 py-4 shadow-soft-glow backdrop-blur-lg transition duration-200 focus:outline-none focus:ring-2 ${
                             isSelected
-                              ? 'border-aurora-green/80 bg-aurora-green/10'
-                              : 'border-white/15 bg-white/10 hover:border-aurora-green/60 hover:bg-aurora-green/10'
+                              ? ''
+                              : 'border-white/15 bg-white/10'
                           }`}
-                          style={{ boxShadow: `0 20px 35px -18px ${accentColor}55` }}
+                          style={{
+                            borderColor: isSelected ? '#576690cc' : undefined,
+                            backgroundColor: isSelected ? '#57669019' : undefined,
+                            '--ring-color': '#576690b3',
+                            boxShadow: `0 20px 35px -18px ${accentColor}55`
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) {
+                              e.target.style.borderColor = '#57669099';
+                              e.target.style.backgroundColor = '#57669019';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) {
+                              e.target.style.borderColor = 'rgba(255,255,255,0.15)';
+                              e.target.style.backgroundColor = 'rgba(255,255,255,0.1)';
+                            }
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.boxShadow = `0 0 0 2px #576690b3`;
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.boxShadow = 'none';
+                          }}
                         >
                           <span className="relative flex h-12 w-12 items-center justify-center rounded-xl bg-deep-navy/40 ring-1 ring-inset ring-white/20">
-                            <TypeIcon className="h-6 w-6 text-aurora-green" />
+                            <TypeIcon className="h-6 w-6" style={{ color: '#576690' }} />
                             <span
                               className="absolute inset-0 rounded-xl"
                               style={{
@@ -316,8 +385,8 @@ function NodeList(props) {
                             />
                           </span>
                           <div className="flex flex-1 flex-col">
-                            <span className="text-base font-semibold text-slate-50">{node.name}</span>
-                            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-300">
+                            <span className="text-base font-semibold text-slate-900">{node.name}</span>
+                            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-700">
                               <span
                                 className="rounded-full px-2 py-1 text-[11px] font-medium uppercase tracking-wider"
                                 style={{
@@ -327,8 +396,8 @@ function NodeList(props) {
                               >
                                 {meta.label}
                               </span>
-                              <span className="flex items-center gap-1 text-slate-300/90">
-                                <span className="h-1.5 w-1.5 rounded-full bg-aurora-green" />
+                              <span className="flex items-center gap-1 text-slate-600">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
                                 层级：{node.layer || '未知'}
                               </span>
                             </div>
@@ -343,18 +412,18 @@ function NodeList(props) {
           })}
         </div>
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-5 text-aurora-green/70">
+        <div className="flex flex-1 flex-col items-center justify-center gap-5" style={{ color: '#576690b3' }}>
           <span
             className="relative flex h-12 w-12 items-center justify-center rounded-full border border-aurora-green/40 bg-aurora-green/5"
             title={selectedNode ? `${selectedNode.name} - ${selectedMeta ? selectedMeta.label : '未知类型'}` : '未选择节点'}
           >
-            <SelectedCollapsedIcon className="h-6 w-6 text-aurora-green" />
+            <SelectedCollapsedIcon className="h-6 w-6" style={{ color: '#576690' }} />
           </span>
           <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/10">
-            <GroupModeIcon className="h-4 w-4" />
+            <GroupModeIcon className="h-4 w-4" style={{ color: '#576690' }} />
           </span>
-          <span className="flex h-10 w-10 items-center justify-center rounded-full border border-aurora-green/30 bg-aurora-green/10">
-            <ListTree className="h-4 w-4" />
+          <span className="flex h-10 w-10 items-center justify-center rounded-full border" style={{ borderColor: '#5766904d', backgroundColor: '#57669019' }}>
+            <ListTree className="h-4 w-4" style={{ color: '#576690' }} />
           </span>
         </div>
       )}
