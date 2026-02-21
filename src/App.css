@@ -6,10 +6,56 @@
   font-family: inherit;
 }
 
+.leaflet-marker-icon,
+.leaflet-marker-shadow {
+  transition: transform 0.9s linear;
+}
+
+.map-moving .leaflet-marker-icon,
+.map-moving .leaflet-marker-shadow {
+  transition: none;
+}
+
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip {
   backdrop-filter: blur(12px);
   background: rgba(8, 24, 48, 0.8);
   border: 1px solid rgba(94, 247, 193, 0.25);
   color: #e2f7ff;
+}
+
+.link-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.link-line--health {
+  filter: drop-shadow(0 0 6px rgba(8, 16, 32, 0.35));
+}
+
+.link-line--flow {
+  stroke-dasharray: 10 18;
+  animation-name: link-flow;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5));
+}
+
+.link-flow--slow {
+  animation-duration: 3.4s;
+}
+
+.link-flow--medium {
+  animation-duration: 2.2s;
+}
+
+.link-flow--fast {
+  animation-duration: 1.4s;
+}
+
+@keyframes link-flow {
+  to {
+    stroke-dashoffset: -280;
+  }
 }

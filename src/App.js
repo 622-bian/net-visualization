@@ -2,7 +2,7 @@
 import './App.css';
 
 // 从 'react' 包导入 React（这是必须的，尤其是在使用 JSX 的文件里）。
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 
 // 从 react-leaflet 包导入需要的组件：MapContainer（地图容器）、TileLayer（地图底图）、Marker（标记）、Popup（弹出信息框）、Polyline（折线）。
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
@@ -16,6 +16,9 @@ import L from 'leaflet';
 // 导入自定义的 NodeList 组件
 import NodeList from './NodeList';
 
+import { topology } from './services/topologyModel';
+import { buildInitialNodeState, createMockNodeStream } from './services/mockNodeStream';
+
 // 导入矢量图标资源
 import groundStationIconUrl from './assets/icons/ground-station.svg';
 import uavIconUrl from './assets/icons/uav.svg';
@@ -23,10 +26,11 @@ import groundUserIconUrl from './assets/icons/ground-user.svg';
 import satelliteIconUrl from './assets/icons/satellite.svg';
 
 const NODE_TYPE_META = {
-  'ground-station': { label: '地面基站', color: '#1f78b4', icon: groundStationIconUrl },
-  uav: { label: '无人机', color: '#f28e2b', icon: uavIconUrl },
-  'ground-user': { label: '地面用户', color: '#59a14f', icon: groundUserIconUrl },
-  satellite: { label: '卫星', color: '#9467bd', icon: satelliteIconUrl },
+  router: { label: '路由器', color: '#1f78b4', icon: groundStationIconUrl },
+  'base-station': { label: '基站', color: '#f28e2b', icon: groundStationIconUrl },
+  'mesh-node': { label: '自组网节点', color: '#59a14f', icon: uavIconUrl },
+  terminal: { label: '终端', color: '#9467bd', icon: groundUserIconUrl },
+  satellite: { label: '卫星', color: '#7f7f7f', icon: satelliteIconUrl },
 };
 
 const ICON_CACHE = {};
@@ -65,34 +69,190 @@ function getIconForType(type) {
   return ICON_CACHE[type];
 }
 
-// 定义一个名为 App 的函数组件，这是 React 推荐的一种写组件的方法（函数组件）。
+function buildNodeMap(nodes) {
+  return nodes.reduce((acc, node) => {
+    acc[node.id] = node;
+    return acc;
+  }, {});
+}
+
+function getNodePosition(node) {
+  if (!node || !node.location || !node.location.geo) {
+    return null;
+  }
+  return [node.location.geo.lat, node.location.geo.lng];
+}
+
+function getLinkStyle(link) {
+  if (link.type === 'wired') {
+    return { color: '#36c2ff', weight: 2.4, opacity: 0.85, dashArray: '4 6' };
+  }
+  if (link.type === 'wireless') {
+    return { color: '#5ef7c1', weight: 2, opacity: 0.8 };
+  }
+  return { color: '#9aa4b2', weight: 2, opacity: 0.7 };
+}
+
+function getLinkHealthColor(link) {
+  const lossRate = typeof link.lossRate === 'number' ? link.lossRate : null;
+  const snrDb = typeof link.snrDb === 'number' ? link.snrDb : null;
+
+  const isCriticalLoss = lossRate !== null && lossRate >= 0.03;
+  const isWarningLoss = lossRate !== null && lossRate >= 0.015;
+  const isCriticalSnr = snrDb !== null && snrDb < 10;
+  const isWarningSnr = snrDb !== null && snrDb < 18;
+
+  if (isCriticalLoss || isCriticalSnr) {
+    return '#f95d5d';
+  }
+  if (isWarningLoss || isWarningSnr) {
+    return '#f4c84a';
+  }
+  return '#35f29a';
+}
+
+function getLinkFlowSpeedClass(link) {
+  const utilization = typeof link.utilization === 'number' ? link.utilization : null;
+  const delayMs = typeof link.delayMs === 'number' ? link.delayMs : null;
+
+  if (utilization !== null) {
+    if (utilization >= 0.75) {
+      return 'link-flow--fast';
+    }
+    if (utilization >= 0.4) {
+      return 'link-flow--medium';
+    }
+    return 'link-flow--slow';
+  }
+
+  if (delayMs !== null) {
+    if (delayMs <= 10) {
+      return 'link-flow--fast';
+    }
+    if (delayMs <= 20) {
+      return 'link-flow--medium';
+    }
+    return 'link-flow--slow';
+  }
+
+  return 'link-flow--medium';
+}
+
 function App() {
-  // 以下是组件内部的普通 JavaScript：定义节点数据（数组），每个节点包含 id、name、position（经纬度数组）、layer（网络层级）。
-  const nodes = [
-    { id: 1, name: "地面基站 A", position: [39.9, 116.4], type: 'ground-station', layer: 'backbone' },
-    { id: 2, name: "无人机中继 B", position: [39.91, 116.42], type: 'uav', layer: 'air' },
-    { id: 3, name: "地面用户 C", position: [39.92, 116.43], type: 'ground-user', layer: 'access' },
-    { id: 4, name: "无人机中继 D", position: [39.915, 116.45], type: 'uav', layer: 'air' },
-    { id: 5, name: "地面基站 E", position: [39.905, 116.41], type: 'ground-station', layer: 'backbone' },
-    { id: 6, name: "卫星中继 F", position: [39.93, 116.4], type: 'satellite', layer: 'space' },
-  ];
+  const baseNodes = useMemo(() => topology.nodes, []);
+  const links = topology.links;
 
-  // 链路数据：这里用简单的 from/to 经纬度对表示两端位置，实际项目中通常用节点 id 关联节点对象。
-  const links = [
-    { from: [39.9, 116.4], to: [39.91, 116.42] },
-    { from: [39.91, 116.42], to: [39.92, 116.43] },
-  ];
-
-  // 组件的返回值是 JSX（看起来像 HTML，但可以在 JavaScript 中使用），它描述了组件的 UI。
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [selectedNodeId, setSelectedNodeId] = useState(nodes[0]?.id || null);
-
-  const markerRefs = useRef({});
+  // 使用 useRef 保存 Marker 实例字典，避免关联任何 React 状态
+  const markerRefsById = useRef({});
+  // 使用 useRef 保存动态节点状态，仅供查询，不触发重渲染
+  const nodeStateRef = useRef(buildInitialNodeState(baseNodes));
 
   const mapRef = useRef(null);
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId) || null;
+  const nodeMapRef = useRef(buildNodeMap(baseNodes));
 
-  function SelectedNodeController({ node }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState(baseNodes[0]?.id || null);
+  const [focusRequestId, setFocusRequestId] = useState(null);
+
+  useEffect(() => {
+    nodeMapRef.current = buildNodeMap(baseNodes);
+  }, [baseNodes]);
+
+  // 直接更新 Marker 位置和图标，无需触发 React 重渲染
+  const handleUpdateNodeStates = useCallback((updates) => {
+    const currentState = nodeStateRef.current;
+    updates.forEach((update) => {
+      const previous = currentState[update.id] || {};
+      const nextState = {
+        ...previous,
+        ...update,
+        location: update.location || previous.location,
+        state: update.state || previous.state,
+      };
+      currentState[update.id] = nextState;
+
+      // 直接操作 Leaflet Marker，调用原生 setLatLng() 和 setIcon()
+      const marker = markerRefsById.current[update.id];
+      if (!marker) {
+        return;
+      }
+
+      // 更新位置
+      if (update.location?.geo) {
+        const latLng = [update.location.geo.lat, update.location.geo.lng];
+        marker.setLatLng(latLng);
+      }
+
+      // 状态变化时更新图标（如在线/离线）
+      if (update.state?.online !== undefined) {
+        const baseNode = baseNodes.find((n) => n.id === update.id);
+        if (baseNode) {
+          const icon = getIconForType(baseNode.type);
+          marker.setIcon(icon);
+        }
+      }
+    });
+  }, [baseNodes]);
+
+  useEffect(() => {
+    const stop = createMockNodeStream(baseNodes, handleUpdateNodeStates);
+    return () => stop();
+  }, [baseNodes, handleUpdateNodeStates]);
+
+  const handleToggleSidebar = useCallback((value) => {
+    const nextCollapsed = !!value;
+    setSidebarCollapsed(nextCollapsed);
+    if (nextCollapsed) {
+      setSelectedNodeId(null);
+      setFocusRequestId(null);
+    }
+  }, []);
+
+  const handleSelectNode = useCallback((nodeId) => {
+    setSelectedNodeId((prev) => {
+      if (prev === nodeId) {
+        setFocusRequestId(null);
+        return null;
+      }
+      setFocusRequestId(nodeId);
+      return nodeId;
+    });
+  }, []);
+
+  const handleFocusConsumed = useCallback(() => {
+    setFocusRequestId(null);
+  }, []);
+
+  function MapMovementController() {
+    const map = useMap();
+
+    useEffect(() => {
+      const container = map.getContainer();
+      if (!container) {
+        return undefined;
+      }
+
+      const addClass = () => container.classList.add('map-moving');
+      const removeClass = () => container.classList.remove('map-moving');
+
+      map.on('movestart', addClass);
+      map.on('moveend', removeClass);
+      map.on('zoomstart', addClass);
+      map.on('zoomend', removeClass);
+
+      return () => {
+        map.off('movestart', addClass);
+        map.off('moveend', removeClass);
+        map.off('zoomstart', addClass);
+        map.off('zoomend', removeClass);
+        container.classList.remove('map-moving');
+      };
+    }, [map]);
+
+    return null;
+  }
+
+  function SelectedNodeController({ nodeId, focusId, onFocusHandled }) {
     const map = useMap();
 
     useEffect(() => {
@@ -100,22 +260,15 @@ function App() {
     }, [map]);
 
     useEffect(() => {
-      if (!node) {
+      if (!nodeId) {
+        map.closePopup();
         return;
       }
 
-      const marker = markerRefs.current[node.id];
-      const currentZoom = map.getZoom ? map.getZoom() : 13;
-      const targetZoom = Math.max(currentZoom, 15);
-
-      map.flyTo(node.position, targetZoom, {
-        duration: 0.8,
-        easeLinearity: 0.25,
-      });
-
+      const marker = markerRefsById.current[nodeId];
       let cleanupTimer = null;
       const openPopup = () => {
-        const activeMarker = markerRefs.current[node.id];
+        const activeMarker = markerRefsById.current[nodeId];
         if (activeMarker) {
           activeMarker.openPopup();
           activeMarker.setZIndexOffset(1000);
@@ -123,100 +276,193 @@ function App() {
       };
 
       if (marker) {
-        cleanupTimer = setTimeout(openPopup, 400);
+        cleanupTimer = setTimeout(openPopup, 200);
       } else {
-        cleanupTimer = setTimeout(openPopup, 500);
+        cleanupTimer = setTimeout(openPopup, 400);
       }
 
       return () => {
         if (cleanupTimer) {
           clearTimeout(cleanupTimer);
         }
-        const activeMarker = markerRefs.current[node.id];
+        const activeMarker = markerRefsById.current[nodeId];
         if (activeMarker) {
           activeMarker.setZIndexOffset(0);
         }
       };
-    }, [map, node]);
+    }, [map, nodeId]);
+
+    useEffect(() => {
+      if (!nodeId || focusId !== nodeId) {
+        return;
+      }
+
+      const baseNode = nodeMapRef.current[nodeId];
+      const nodePosition = getNodePosition(baseNode);
+      if (!nodePosition) {
+        onFocusHandled && onFocusHandled();
+        return;
+      }
+
+      const currentZoom = map.getZoom ? map.getZoom() : 13;
+      const targetZoom = Math.max(currentZoom, 15);
+      map.flyTo(nodePosition, targetZoom, {
+        duration: 0.8,
+        easeLinearity: 0.25,
+      });
+
+      onFocusHandled && onFocusHandled();
+    }, [map, nodeId, focusId, onFocusHandled]);
 
     return null;
   }
 
+  // 渲染 Marker 的基础数据来自 baseNodes，位置和状态在 Marker 挂载后直接由 Leaflet 更新
+  const markerElements = baseNodes.map((node) => {
+    const typeMeta = NODE_TYPE_META[node.type] || { label: node.type || '未知节点', color: '#7f7f7f' };
+    const position = getNodePosition(node);
+    if (!position) {
+      return null;
+    }
+
+    return (
+      <Marker
+        key={node.id}
+        position={position}
+        icon={getIconForType(node.type)}
+        eventHandlers={{
+          click: () => handleSelectNode(node.id),
+        }}
+        ref={(marker) => {
+          if (marker) {
+            markerRefsById.current[node.id] = marker;
+          } else {
+            delete markerRefsById.current[node.id];
+          }
+        }}
+      >
+        <Popup>
+          <div className="text-sm text-slate-900">
+            <div className="text-base font-semibold text-slate-900">{node.name}</div>
+            <div className="mt-2 space-y-1 text-slate-800">
+              <div>节点 ID：{node.id}</div>
+              <div>节点类型：{typeMeta.label}</div>
+              <div>层级：{node.layer || '-'}</div>
+              <div>
+                状态：
+                {(() => {
+                  const dynState = nodeStateRef.current[node.id];
+                  const online = dynState?.state?.online ?? node.state?.online;
+                  const status = dynState?.state?.status ?? node.state?.status ?? '-';
+                  return `${online ? '在线' : '离线'} (${status})`;
+                })()}
+              </div>
+              <div>
+                时间戳：
+                {(() => {
+                  const dynState = nodeStateRef.current[node.id];
+                  return dynState?.timestamp || node.state?.lastSeen || '-';
+                })()}
+              </div>
+              <div>
+                位置：
+                {(() => {
+                  const dynState = nodeStateRef.current[node.id];
+                  const geo = dynState?.location?.geo || node.location?.geo;
+                  if (!geo) return '-';
+                  return `${geo.lat?.toFixed(5) ?? '-'}, ${geo.lng?.toFixed(5) ?? '-'}`;
+                })()}
+              </div>
+              <div>
+                高度：
+                {(() => {
+                  const dynState = nodeStateRef.current[node.id];
+                  const geo = dynState?.location?.geo || node.location?.geo;
+                  return geo?.altitude ?? '-';
+                })()}
+              </div>
+            </div>
+          </div>
+        </Popup>
+      </Marker>
+    );
+  });
+
+  // 链路渲染保持原逻辑，但仅基于 baseNodes 计算位置
+  const linkElements = links.map((link) => {
+    const fromNode = nodeMapRef.current[link.from];
+    const toNode = nodeMapRef.current[link.to];
+    const fromPosition = getNodePosition(fromNode);
+    const toPosition = getNodePosition(toNode);
+    if (!fromPosition || !toPosition) {
+      return null;
+    }
+
+    const healthColor = getLinkHealthColor(link);
+    const flowClass = `link-line link-line--flow ${getLinkFlowSpeedClass(link)}`;
+    const baseOpacity = typeof link.availability === 'number'
+      ? Math.min(1, Math.max(0.4, link.availability))
+      : 0.8;
+
+    return (
+      <React.Fragment key={link.id}>
+        <Polyline
+          positions={[fromPosition, toPosition]}
+          pathOptions={{
+            ...getLinkStyle(link),
+            color: healthColor,
+            opacity: baseOpacity,
+            className: 'link-line link-line--health',
+          }}
+        />
+        <Polyline
+          positions={[fromPosition, toPosition]}
+          pathOptions={{
+            color: healthColor,
+            weight: 3,
+            opacity: 0.9,
+            className: flowClass,
+          }}
+        />
+      </React.Fragment>
+    );
+  });
+
   return (
-    // 外层容器采用全屏布局，地图占满整个页面
     <div className="App relative h-screen w-screen bg-gradient-to-br from-deep-navy via-[#0d1f3c] to-[#030915] text-slate-100 overflow-hidden">
-      {/* 节点列表浮层 - 半透明侧边栏 */}
       <div
         className={`absolute top-0 left-0 z-10 h-full transition-all duration-300 ease-out border-r border-white/20 backdrop-blur-2xl bg-white/5 shadow-2xl flex-shrink-0 ${sidebarCollapsed ? 'w-20' : 'w-80'}`}
       >
         <NodeList
-          nodes={nodes}
+          nodes={baseNodes}
           collapsed={sidebarCollapsed}
-          onToggle={(v) => setSidebarCollapsed(!!v)}
+          onToggle={handleToggleSidebar}
           typeMeta={NODE_TYPE_META}
           selectedNodeId={selectedNodeId}
-          onSelectNode={setSelectedNodeId}
+          onSelectNode={handleSelectNode}
         />
       </div>
 
-      {/* 全屏地图容器 */}
       <MapContainer
         center={[39.9, 116.4]}
         zoom={13}
         className="absolute inset-0 h-full w-full z-0"
       >
-          <SelectedNodeController node={selectedNode} />
-          {/* TileLayer：地图瓦片图层（底图），这里使用 OpenStreetMap 的公共瓦片服务 */}
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution="&copy; OpenStreetMap 贡献者"
-          />
-
-          {/* 使用 JavaScript 的 map 方法遍历 nodes 数组，为每个节点渲染一个 Marker（标记） */}
-          {nodes.map((node) => {
-            const typeMeta = NODE_TYPE_META[node.type] || { label: node.type || '未知节点', color: '#7f7f7f' };
-            return (
-              // Marker 组件显示在地图上的一个点。React 要求列表中元素有唯一的 key，这里使用 node.id。
-              <Marker
-                key={node.id}
-                position={node.position}
-                icon={getIconForType(node.type)}
-                ref={(marker) => {
-                  if (marker) {
-                    markerRefs.current[node.id] = marker;
-                  } else {
-                    delete markerRefs.current[node.id];
-                  }
-                }}
-              >
-                {/* Popup 是 Marker 的子组件，用于显示当点击或打开时的弹窗内容 */}
-                <Popup>
-                  {/* 在 Popup 中显示节点名称和层级信息。JSX 中花括号 {} 用于插入 JavaScript 表达式或变量 */}
-                  <strong>{node.name}</strong>
-                  <br />
-                  类型：{typeMeta.label}
-                  <br />
-                  网络层级：{node.layer}
-                </Popup>
-              </Marker>
-            );
-          })}
-
-          {/* 绘制链路：遍历 links 数组，为每条链路渲染一个 Polyline（折线）
-              - positions 接受一个包含经纬度对的数组，这里传入 [from, to]
-              - color：线颜色；weight：线宽
-          */}
-          {links.map((link, index) => (
-            <Polyline
-              key={index}
-              positions={[link.from, link.to]}
-              pathOptions={{ color: '#5ef7c1', weight: 2, opacity: 0.8 }}
-            />
-          ))}
-        </MapContainer>
+        <MapMovementController />
+        <SelectedNodeController
+          nodeId={selectedNodeId}
+          focusId={focusRequestId}
+          onFocusHandled={handleFocusConsumed}
+        />
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution="&copy; OpenStreetMap 贡献者"
+        />
+        {markerElements}
+        {linkElements}
+      </MapContainer>
     </div>
   );
 }
 
-// 导出 App 组件作为默认导出，其他文件可以通过 `import App from './App'` 引入它。
 export default App;

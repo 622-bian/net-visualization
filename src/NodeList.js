@@ -21,13 +21,13 @@ const GROUP_MODE_OPTIONS = [
 
 const LAYER_META = {
   backbone: { label: '骨干网', color: '#1f78b4' },
-  air: { label: '自组网', color: '#f28e2b' },
-  access: { label: '接入网', color: '#59a14f' },
-  space: { label: '空天节点', color: '#9467bd' },
+  access: { label: '接入网', color: '#f28e2b' },
+  mesh: { label: '自组网', color: '#59a14f' },
+  edge: { label: '终端层', color: '#9467bd' },
 };
 
-const LAYER_ORDER = ['backbone', 'air', 'access', 'space'];
-const TYPE_ORDER = ['ground-station', 'ground-user', 'uav', 'satellite'];
+const LAYER_ORDER = ['backbone', 'access', 'mesh', 'edge'];
+const TYPE_ORDER = ['router', 'base-station', 'mesh-node', 'terminal', 'satellite'];
 const EMPTY_ARRAY = [];
 const EMPTY_OBJECT = {};
 
@@ -101,9 +101,10 @@ function NodeList(props) {
   const typeMetaMap = props.typeMeta ?? EMPTY_OBJECT;
 
   const iconMap = {
-    'ground-station': RadioTower,
-    uav: Drone,
-    'ground-user': Users,
+    router: RadioTower,
+    'base-station': RadioTower,
+    'mesh-node': Drone,
+    terminal: Users,
     satellite: Satellite,
   };
 
@@ -431,4 +432,4 @@ function NodeList(props) {
   );
 }
 
-export default NodeList;
+export default React.memo(NodeList);
